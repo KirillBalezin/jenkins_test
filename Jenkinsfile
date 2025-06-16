@@ -2,7 +2,7 @@ pipeline {
     agent none
 
     environment {
-        REPO_NAME = 'kirbalezin/jenkins_test'
+
     }
 
     stages {
@@ -34,7 +34,7 @@ pipeline {
                 script {
                     docker.withServer('tcp://docker-dind:2375') {
                         docker.image("${REPO_NAME}:${GIT_COMMIT_SHORT}").inside {
-                            sh 'python -m unittest discover -s tests -p "test_*.py"'
+                            sh 'python -m unittest discover -s tests'
                         }
                     }
                 }
@@ -86,7 +86,16 @@ pipeline {
             }
             steps {
                 script {
-                    echo "update ...."
+                    sshagent(['ssh_key']) {
+                        sh """
+ssh -o StrictHostKeyChecking=no ladmin@${SERVER_IP} <<ENDSSH
+docker pull ${REPO_NAME}:${GIT_COMMIT_SHORT}
+docker stop ${CONTAINER_NAME} || true
+docker rm ${CONTAINER_NAME} || true
+CALC_VERSION=${GIT_COMMIT_SHORT} docker compose up -d calc
+ENDSSH
+                        """
+                    }
                 }
             }
         }
