@@ -15,7 +15,7 @@ pipeline {
         stage('say hi') {
             steps {
                 script {
-                    echo hi
+                    echo "hi"
                 }
             }
         }
