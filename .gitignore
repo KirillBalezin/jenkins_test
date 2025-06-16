@@ -1,0 +1,9 @@
+.idea
+.env
+.venv
+venv/
+.tmp
+compose-data
+.DS_Store
+__pycache__/
+.vscode*
