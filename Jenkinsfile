@@ -58,16 +58,23 @@ pipeline {
         }
 
         stage ('variable') {
-            agent any
             steps {
                 script {
-                    CHOICE_UPDATE = input(
-                        message: 'Update container?',
-                        ok: 'Continue',
-                        parameters: [
-                            choice(name: 'Действие', choices: ['Yes', 'No'])
-                        ]
-                    )
+                    try {
+                        timeout(time: 10, unit: 'SECONDS') {
+                            CHOICE_UPDATE = input(
+                                message: 'Update container?',
+                                ok: 'Continue',
+                                parameters: [
+                                    choice(name: 'Действие', choices: ['Yes', 'No'])
+                                ]
+                            )
+                        }
+                    } catch(err) {
+                        // Если таймаут случился — назначаем "No"
+                        echo "Input timeout reached, defaulting to 'No'"
+                        CHOICE_UPDATE = 'No'
+                    }
                 }
             }
         }

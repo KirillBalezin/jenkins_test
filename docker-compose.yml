@@ -1,0 +1,4 @@
+services:
+  calc:
+    image: kirbalezin/jenkins_test:${CALC_VERSION}
+    command: ["python", "calc.py"]
