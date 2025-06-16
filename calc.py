@@ -1,4 +1,5 @@
 import logging
+import time
 
 
 class Calculator:
@@ -33,6 +34,10 @@ def main():
     log.info(f"subtract: {calc.subtract(1, 2)}")
     log.info(f"multiply: {calc.multiply(1, 2)}")
     log.info(f"divide: {calc.divide(1, 2)}")
+
+    while True:
+        log.info("go sleep")
+        time.sleep(60)
 
 
 if __name__ == "__main__":
