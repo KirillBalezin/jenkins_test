@@ -13,8 +13,10 @@ pipeline {
         }
 
         stage('say hi') {
-            script {
-                echo hi
+            steps {
+                script {
+                    echo hi
+                }
             }
         }
 
