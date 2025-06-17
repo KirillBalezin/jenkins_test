@@ -2,7 +2,9 @@ pipeline {
     agent none
 
     environment {
-
+        REPO_NAME = 'kirbalezin/jenkins_test'
+        CONTAINER_NAME = 'calc'
+        SERVER_IP = '10.128.0.17'
     }
 
     stages {
