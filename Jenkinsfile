@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         REPO_NAME = 'kirbalezin/jenkins_test'
-        CONTAINER_NAME = 'calc'
+        CONTAINER_NAME = 'ladmin-calc-1'
         SERVER_IP = '10.128.0.17'
     }
 
@@ -13,8 +13,8 @@ pipeline {
             steps {
                 git branch: 'master', url: 'https://github.com/KirillBalezin/jenkins_test.git'
                 script {
-                    GIT_COMMIT_SHORT = sh(returnStdout: true, script: 'git rev-parse HEAD').trim().take(7)
-                    currentBuild.displayName = "$GIT_COMMIT_SHORT"
+                    env.GIT_COMMIT_SHORT = sh(returnStdout: true, script: 'git rev-parse HEAD').trim().take(7)
+                    currentBuild.displayName = env.GIT_COMMIT_SHORT
                 }
             }
         }
@@ -24,7 +24,7 @@ pipeline {
             steps {
                 script {
                     docker.withServer('tcp://docker-dind:2375') {
-                        DOCKER_IMAGE = docker.build("${REPO_NAME}:${GIT_COMMIT_SHORT}")
+                        DOCKER_IMAGE = docker.build("${env.REPO_NAME}:${env.GIT_COMMIT_SHORT}")
                     }
                 }
             }
@@ -35,7 +35,7 @@ pipeline {
             steps {
                 script {
                     docker.withServer('tcp://docker-dind:2375') {
-                        docker.image("${REPO_NAME}:${GIT_COMMIT_SHORT}").inside {
+                        docker.image("${env.REPO_NAME}:${env.GIT_COMMIT_SHORT}").inside {
                             sh 'python -m unittest discover -s tests'
                         }
                     }
@@ -52,30 +52,36 @@ pipeline {
                             DOCKER_IMAGE.push()
                             DOCKER_IMAGE.push("latest")
                         }
-                        sh "docker rmi ${REPO_NAME}:${GIT_COMMIT_SHORT} || true"
-                        sh "docker rmi ${REPO_NAME}:latest || true"
+                    }
+                }
+            }
+            post {
+                always {
+                    script {
+                        sh "docker rmi ${env.REPO_NAME}:${env.GIT_COMMIT_SHORT} || true"
+                        sh "docker rmi ${env.REPO_NAME}:latest || true"
                     }
                 }
             }
         }
 
         stage ('variable') {
+            agent none
             steps {
                 script {
                     try {
-                        timeout(time: 10, unit: 'SECONDS') {
-                            CHOICE_UPDATE = input(
+                        timeout(time: 10, unit: 'MINUTES') {
+                            env.CHOICE_UPDATE = input(
                                 message: 'Update container?',
                                 ok: 'Continue',
                                 parameters: [
-                                    choice(name: 'Действие', choices: ['Yes', 'No'])
+                                    choice(name: 'Choice', choices: ['Yes', 'No'])
                                 ]
                             )
                         }
                     } catch(err) {
-                        // Если таймаут случился — назначаем "No"
                         echo "Input timeout reached, defaulting to 'No'"
-                        CHOICE_UPDATE = 'No'
+                        env.CHOICE_UPDATE = 'No'
                     }
                 }
             }
@@ -90,11 +96,11 @@ pipeline {
                 script {
                     sshagent(['ssh_key']) {
                         sh """
-ssh -o StrictHostKeyChecking=no ladmin@${SERVER_IP} <<ENDSSH
-docker pull ${REPO_NAME}:${GIT_COMMIT_SHORT}
-docker stop ${CONTAINER_NAME} || true
-docker rm ${CONTAINER_NAME} || true
-CALC_VERSION=${GIT_COMMIT_SHORT} docker compose up -d calc
+ssh -o StrictHostKeyChecking=no ladmin@${env.SERVER_IP} <<ENDSSH
+docker pull ${env.REPO_NAME}:${env.GIT_COMMIT_SHORT}
+docker stop ${env.CONTAINER_NAME} || true
+docker rm ${env.CONTAINER_NAME} || true
+CALC_VERSION=${env.GIT_COMMIT_SHORT} docker compose up -d calc
 ENDSSH
                         """
                     }
@@ -106,9 +112,10 @@ ENDSSH
     post {
         always {
             script {
-                echo "Done post actions"
+                node {
+                    echo "Done post actions"
+                }
             }
         }
     }
-
 }
