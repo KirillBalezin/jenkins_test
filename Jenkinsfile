@@ -1,119 +1,97 @@
 pipeline {
-    agent none
+    agent any
 
     environment {
-        REPO_NAME = 'kirbalezin/jenkins_test'
-        CONTAINER_NAME = 'ladmin-calc-1'
-        SERVER_IP = '10.128.0.17'
+        AWS_ENDPOINT = 'https://storage.yandexcloud.net'
+        BUCKET = 'ib-builds'
+        REPO_NAME = 'kirbalezin/bspb-ib'
+    }
+
+    parameters {
+        string(name: 'RELEASE', defaultValue: 'release-2025-06-zero-client-private',  description: 'release name')
     }
 
     stages {
-        stage('release info') {
-            agent any
+        stage('Prepare') {
             steps {
-                git branch: 'master', url: 'https://github.com/KirillBalezin/jenkins_test.git'
                 script {
-                    env.GIT_COMMIT_SHORT = sh(returnStdout: true, script: 'git rev-parse HEAD').trim().take(7)
-                    currentBuild.displayName = env.GIT_COMMIT_SHORT
+                    deleteDir()
+                    currentBuild.displayName = RELEASE
                 }
             }
         }
 
-        stage('Build Docker Image') {
-            agent any
+        stage('Find release file') {
             steps {
-                script {
-                    docker.withServer('tcp://docker-dind:2375') {
-                        DOCKER_IMAGE = docker.build("${env.REPO_NAME}:${env.GIT_COMMIT_SHORT}")
-                    }
-                }
-            }
-        }
+                withAWS(credentials: 'yc_ib_builds', endpointUrl: env.AWS_ENDPOINT) {
+                    script {
+                        def files = s3FindFiles(bucket: env.BUCKET, path: "${RELEASE}/", glob: '*.zip').findAll { !it.directory }
 
-        stage('Run Tests') {
-            agent any
-            steps {
-                script {
-                    docker.withServer('tcp://docker-dind:2375') {
-                        docker.image("${env.REPO_NAME}:${env.GIT_COMMIT_SHORT}").inside {
-                            sh 'python -m unittest discover -s tests'
+                        echo "Files: ${files}"
+
+                        if (files.isEmpty()) {
+                            echo "The release was not found"
+                            def releases = s3FindFiles(bucket: env.BUCKET).findAll { it.directory }
+                            echo "Avaliable releases: ${releases}"
+                            sh 'exit 1'
+                        } else {
+                            def latestFile = files[0]
+                            for (f in files) {
+                                if (f.lastModified > latestFile.lastModified) {
+                                    latestFile = f
+                                }
+                            }
+                            echo "Latest file: ${latestFile.name} - Last Modified: ${new Date(latestFile.lastModified)}"
+                            LATEST_FILE = latestFile.name
                         }
                     }
                 }
             }
         }
 
-        stage ('Send to Docker Hub') {
-            agent any
+        stage('Download release') {
+            steps {
+                script {
+                    withAWS(credentials: 'yc_ib_builds', endpointUrl: env.AWS_ENDPOINT) {
+                        s3Download(
+                            bucket: env.BUCKET,
+                            file: "${env.WORKSPACE}/${LATEST_FILE}",
+                            path: "${RELEASE}/${LATEST_FILE}",
+                            force: true
+                        )
+                    }
+                }
+            }
+        }
+
+        stage('Unzip release') {
+            steps {
+                script {
+                    sh "unzip -o ${WORKSPACE}/${LATEST_FILE} -d ${WORKSPACE}/bspb/"
+                }
+            }
+        }
+
+        stage('Docker build') {
+            steps {
+                script {
+                    RELEASE_NAME = LATEST_FILE - '.zip'
+                    sh "echo ${RELEASE_NAME}"
+                    docker.withServer('tcp://docker-dind:2375') {
+                        DOCKER_IMAGE = docker.build("${env.REPO_NAME}:${RELEASE_NAME}")
+                    }
+                }
+            }
+        }
+
+        stage('Docker push') {
             steps {
                 script {
                     docker.withServer('tcp://docker-dind:2375') {
                         docker.withRegistry('', 'dhLogin') {
                             DOCKER_IMAGE.push()
-                            DOCKER_IMAGE.push("latest")
                         }
                     }
-                }
-            }
-            post {
-                always {
-                    script {
-                        sh "docker rmi ${env.REPO_NAME}:${env.GIT_COMMIT_SHORT} || true"
-                        sh "docker rmi ${env.REPO_NAME}:latest || true"
-                    }
-                }
-            }
-        }
-
-        stage ('variable') {
-            agent none
-            steps {
-                script {
-                    try {
-                        timeout(time: 10, unit: 'MINUTES') {
-                            env.CHOICE_UPDATE = input(
-                                message: 'Update container?',
-                                ok: 'Continue',
-                                parameters: [
-                                    choice(name: 'Choice', choices: ['Yes', 'No'])
-                                ]
-                            )
-                        }
-                    } catch(err) {
-                        echo "Input timeout reached, defaulting to 'No'"
-                        env.CHOICE_UPDATE = 'No'
-                    }
-                }
-            }
-        }
-
-        stage ('container update') {
-            agent any
-            when {
-                expression { CHOICE_UPDATE == 'Yes' }
-            }
-            steps {
-                script {
-                    sshagent(['ssh_key']) {
-                        sh """
-ssh -o StrictHostKeyChecking=no ladmin@${env.SERVER_IP} <<ENDSSH
-docker pull ${env.REPO_NAME}:${env.GIT_COMMIT_SHORT}
-docker stop ${env.CONTAINER_NAME} || true
-docker rm ${env.CONTAINER_NAME} || true
-CALC_VERSION=${env.GIT_COMMIT_SHORT} docker compose up -d calc
-ENDSSH
-                        """
-                    }
-                }
-            }
-        }
-    }
-
-    post {
-        always {
-            script {
-                node {
-                    echo "Done post actions"
                 }
             }
         }

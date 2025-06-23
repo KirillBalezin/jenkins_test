@@ -7,3 +7,4 @@ compose-data
 .DS_Store
 __pycache__/
 .vscode*
+old/
